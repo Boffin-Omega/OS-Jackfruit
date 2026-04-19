@@ -52,37 +52,37 @@ make clean
 ### 3.1 Multi-container supervision
 Command: `sudo ./engine start alpha ...` and `sudo ./engine start beta ...`
 
-![Multi-container supervision](1.jpeg)
+![Multi-container supervision](assets/1.jpeg)
 
 ### 3.2 Metadata tracking (`ps`)
 Command: `sudo ./engine ps`
 
-![Container metadata](2.jpeg)
+![Container metadata](assets/2.jpeg)
 
 ### 3.3 Bounded-buffer logging
 Command: `sudo ./engine start gamma ...` then `sudo ./engine logs gamma`
 
-![Bounded-buffer logging output](3.jpeg)
+![Bounded-buffer logging output](assets/3.jpeg)
 
 ### 3.4 CLI and IPC
 Command: `sudo ./engine start alpha2 ../rootfs-alpha "..."`
 
-![CLI to supervisor IPC](4.jpeg)
+![CLI to supervisor IPC](assets/4.jpeg)
 
 ### 3.5 Soft-limit warning
 Command: `sudo ./engine start alpha ../rootfs-alpha "/memory_hog 4 500" --soft-mib 8 --hard-mib 100` and `dmesg | tail -20`
 
-![Soft-limit warning](5.jpeg)
+![Soft-limit warning](assets/5.jpeg)
 
 ### 3.6 Scheduling experiment
 Command: `./experiment.sh`
 
-![Scheduling experiment](6.jpeg)
+![Scheduling experiment](assets/6.jpeg)
 
 ### 3.7 Clean teardown
 Command: `sudo rmmod monitor` and `ls -l /dev/container_monitor`
 
-![Clean teardown](7.jpeg)
+![Clean teardown](assets/7.jpeg)
 
 ## 4. Engineering Analysis
 
