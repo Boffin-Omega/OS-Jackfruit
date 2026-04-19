@@ -1,111 +1,120 @@
-# Multi-Container Runtime
+# OS Jackfruit: Supervised Multi-Container Runtime
 
-A lightweight Linux container runtime in C with a long-running supervisor and a kernel-space memory monitor.
+Lightweight container runtime in C with a long-running supervisor and a kernel memory monitor.
 
-Read [`project-guide.md`](project-guide.md) for the full project specification.
+## 1. Team Information
 
----
+1. PES2UG24CS124 - C K Gagan Gowda
+2. PES2UG24CS116 - Bhuvan M S
 
-## Getting Started
-
-### 1. Fork the Repository
-
-1. Go to [github.com/shivangjhalani/OS-Jackfruit](https://github.com/shivangjhalani/OS-Jackfruit)
-2. Click **Fork** (top-right)
-3. Clone your fork:
+## 2. Build, Load, and Run Instructions
 
 ```bash
-git clone https://github.com/<your-username>/OS-Jackfruit.git
-cd OS-Jackfruit
-```
-
-### 2. Set Up Your VM
-
-You need an **Ubuntu 22.04 or 24.04** VM with **Secure Boot OFF**. WSL will not work.
-
-Install dependencies:
-
-```bash
+# Prerequisites
 sudo apt update
-sudo apt install -y build-essential linux-headers-$(uname -r)
-```
+sudo apt install -y build-essential linux-headers-$(uname -r) wget
 
-### 3. Run the Environment Check
-
-```bash
-cd boilerplate
-chmod +x environment-check.sh
-sudo ./environment-check.sh
-```
-
-Fix any issues reported before moving on.
-
-### 4. Prepare the Root Filesystem
-
-```bash
-mkdir rootfs-base
+# From repo root
+mkdir -p rootfs-base
 wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-3.20.3-x86_64.tar.gz
 tar -xzf alpine-minirootfs-3.20.3-x86_64.tar.gz -C rootfs-base
-
-# Make one writable copy per container you plan to run
 cp -a ./rootfs-base ./rootfs-alpha
 cp -a ./rootfs-base ./rootfs-beta
-```
 
-Do not commit `rootfs-base/` or `rootfs-*` directories to your repository.
-
-### 5. Understand the Boilerplate
-
-The `boilerplate/` folder contains starter files:
-
-| File                   | Purpose                                             |
-| ---------------------- | --------------------------------------------------- |
-| `engine.c`             | User-space runtime and supervisor skeleton          |
-| `monitor.c`            | Kernel module skeleton                              |
-| `monitor_ioctl.h`      | Shared ioctl command definitions                    |
-| `Makefile`             | Build targets for both user-space and kernel module |
-| `cpu_hog.c`            | CPU-bound test workload                             |
-| `io_pulse.c`           | I/O-bound test workload                             |
-| `memory_hog.c`         | Memory-consuming test workload                      |
-| `environment-check.sh` | VM environment preflight check                      |
-
-Use these as your starting point. You are free to restructure the repository however you want — the submission requirements are listed in the project guide.
-
-### 6. Build and Verify
-
-```bash
+# Build
 cd boilerplate
 make
+
+# Load monitor
+sudo insmod monitor.ko
+ls -l /dev/container_monitor
+
+# Start supervisor (terminal 1)
+sudo ./engine supervisor ../rootfs-base
+
+# Start containers (terminal 2)
+sudo ./engine start alpha ../rootfs-alpha "/cpu_hog 100"
+sudo ./engine start beta  ../rootfs-beta  "/cpu_hog 100"
+sudo ./engine ps
+
+# Logs and stop
+sudo ./engine logs alpha
+sudo ./engine stop alpha
+sudo ./engine stop beta
+
+# Cleanup
+sudo rmmod monitor
+make clean
 ```
 
-If this compiles without errors, your environment is ready.
+## 3. Demo with Screenshots
 
-### 7. GitHub Actions Smoke Check
+### 3.1 Multi-container supervision
+Command: `sudo ./engine start alpha ...` and `sudo ./engine start beta ...`
 
-Your fork will inherit a minimal GitHub Actions workflow from this repository.
+![Multi-container supervision](1.jpeg)
 
-That workflow only performs CI-safe checks:
+### 3.2 Metadata tracking (`ps`)
+Command: `sudo ./engine ps`
 
-- `make -C boilerplate ci`
-- user-space binary compilation (`engine`, `memory_hog`, `cpu_hog`, `io_pulse`)
-- `./boilerplate/engine` with no arguments must print usage and exit with a non-zero status
+![Container metadata](2.jpeg)
 
-The CI-safe build command is:
+### 3.3 Bounded-buffer logging
+Command: `sudo ./engine start gamma ...` then `sudo ./engine logs gamma`
 
-```bash
-make -C boilerplate ci
-```
+![Bounded-buffer logging output](3.jpeg)
 
-This smoke check does not test kernel-module loading, supervisor runtime behavior, or container execution.
+### 3.4 CLI and IPC
+Command: `sudo ./engine start alpha2 ../rootfs-alpha "..."`
 
----
+![CLI to supervisor IPC](4.jpeg)
 
-## What to Do Next
+### 3.5 Soft-limit warning
+Command: `sudo ./engine start alpha ../rootfs-alpha "/memory_hog 4 500" --soft-mib 8 --hard-mib 100` and `dmesg | tail -20`
 
-Read [`project-guide.md`](project-guide.md) end to end. It contains:
+![Soft-limit warning](5.jpeg)
 
-- The six implementation tasks (multi-container runtime, CLI, logging, kernel monitor, scheduling experiments, cleanup)
-- The engineering analysis you must write
-- The exact submission requirements, including what your `README.md` must contain (screenshots, analysis, design decisions)
+### 3.6 Scheduling experiment
+Command: `./experiment.sh`
 
-Your fork's `README.md` should be replaced with your own project documentation as described in the submission package section of the project guide. (As in get rid of all the above content and replace with your README.md)
+![Scheduling experiment](6.jpeg)
+
+### 3.7 Clean teardown
+Command: `sudo rmmod monitor` and `ls -l /dev/container_monitor`
+
+![Clean teardown](7.jpeg)
+
+## 4. Engineering Analysis
+
+- Isolation: Containers use PID/UTS/mount namespaces plus `chroot`, with `/proc` mounted inside each container.
+- Lifecycle: A long-running supervisor handles start/stop/ps/logs, reaps children, and tracks state.
+- IPC and sync: UNIX domain socket for control path and pipes for log path; mutex + condition variables for bounded-buffer logging.
+- Memory enforcement: Kernel module checks RSS periodically; soft limit logs warning, hard limit kills process.
+- Scheduling: Nice values influence completion behavior in concurrent CPU-bound runs.
+
+## 5. Design Decisions and Tradeoffs
+
+| Subsystem | Choice | Tradeoff |
+|---|---|---|
+| Isolation | `clone` namespaces + `chroot` | Simpler than `pivot_root`, but less strict |
+| Supervisor | Single daemon for all containers | Central point of failure |
+| Control IPC | UNIX domain socket | Requires supervisor availability |
+| Logging | Pipe producers + bounded buffer + consumer | Back-pressure possible when full |
+| Monitor | Kernel timer + linked list of PIDs | Periodic checks can miss tiny spikes |
+
+## 6. Scheduler Experiment Results
+
+Extracted from screenshot 6 (`./experiment.sh`):
+
+| Run | nice=0 duration | nice=10 duration |
+|---|---|---|
+| 1 | 10s | 11s |
+| 2 | 12s | 12s |
+| 3 | 14s | 15s |
+
+Computed summary:
+
+- Average (nice=0): 12.00s
+- Average (nice=10): 12.67s
+- Relative slowdown of nice=10: 5.6%
+- Observation: nice=10 is generally slower in this workload.
